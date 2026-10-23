@@ -1,244 +1,225 @@
-import { useState } from 'react'
-import { Provider, useStore } from './store'
-import MapView from './MapView'
-import { HOODS, TYPES, GENRES } from './data'
+import { useMemo, useState } from "react";
+import {
+  DISTRICTS, DISTRICT_POS, GENRES, TECH, COLLECTIVE_TYPES, SPACE_TYPES,
+  INITIAL_SPACES, INITIAL_COLLECTIVES, INITIAL_REVIEWS,
+} from "./data.js";
+import { filterSpaces, averageRating } from "./logic.js";
 
-const STATUS = { pending: 'in attesa', accepted: 'accettata', rejected: 'rifiutata', completed: 'conclusa' }
-const rate = (v) => (v ? `${v.avg.toFixed(1)}/5 (${v.n})` : 'nessuna recensione')
-const dow = (d) => new Date(d + 'T00:00:00Z').getUTCDay()
-const wlabel = (w) => `${w.from} – ${w.to}${w.weekend ? ' (solo weekend)' : ''}`
-// La data deve stare in una finestra libera e non coincidere con una richiesta già accettata.
-const fits = (sp, d, rq) =>
-  !!d &&
-  sp.windows.some((w) => d >= w.from && d <= w.to && (!w.weekend || [0, 6].includes(dow(d)))) &&
-  !rq.some((r) => r.spaceId === sp.id && r.date === d && r.status === 'accepted')
+const PHASES = [
+  { name: "Research", text: "We talk to collectives and owners to understand what makes a short-term space work." },
+  { name: "Design", text: "We shape the two flows, the map and the review system with the people who will use them." },
+  { name: "Pilot", text: "We open a first set of spaces in a few districts and learn from real bookings." },
+];
 
-const F = ({ l, children }) => <label className="f"><span>{l}</span>{children}</label>
-
-function ReviewForm({ labels, onSubmit }) {
-  const [c, setC] = useState([5, 5, 5]), [t, setT] = useState('')
-  return (
-    <div className="void pad">
-      {labels.map((l, i) => (
-        <F key={l} l={l}>
-          <select value={c[i]} onChange={(e) => setC(c.map((x, j) => (j === i ? +e.target.value : x)))}>
-            {[5, 4, 3, 2, 1].map((n) => <option key={n}>{n}</option>)}
-          </select>
-        </F>
-      ))}
-      <input placeholder="Commento" value={t} onChange={(e) => setT(e.target.value)} />
-      <button className="y" onClick={() => onSubmit(c.reduce((a, b) => a + b) / 3, t)}>Pubblica recensione</button>
-    </div>
-  )
+function Stars({ value }) {
+  return <span aria-label={`${value.toFixed(1)} out of 5`}>{"★".repeat(Math.round(value))}{"☆".repeat(5 - Math.round(value))}</span>;
 }
 
-function Reviews({ kind, target }) {
-  const { s } = useStore()
-  return s.reviews.filter((r) => r.kind === kind && r.target === target)
-    .map((r) => <p key={r.id} className="rev">{r.score.toFixed(1)}/5 {r.text}</p>)
+function Field({ label, children }) {
+  return <label className="field"><span>{label}</span>{children}</label>;
 }
 
-function Home({ go }) {
+function Hero({ go }) {
   return (
-    <section>
-      <h1>Zwischenraum<br />Berlin</h1>
-      <p className="lead">Berlino ha stanze vuote – negozi, uffici, magazzini – che restano inutilizzate per mesi, mentre i collettivi faticano a trovare luoghi in cui esprimersi.</p>
-      <p>Costruiamo un ponte digitale diretto tra chi ha spazi vuoti e chi cerca luoghi per la cultura underground e gli eventi.</p>
-      <div className="grid2">
-        <button className="void big" onClick={() => go('need')}>Need a space?<small>Collettivi e organizzatori</small></button>
-        <button className="void big" onClick={() => go('have')}>Have a space?<small>Proprietari di immobili</small></button>
-      </div>
-      <h2>Come procede il progetto</h2>
-      <div className="grid3">
-        {[['Ricerca', 'Sondaggi e interviste con collettivi e proprietari.'],
-          ['Design', 'Identità, flussi e prototipo dell’app.'],
-          ['Pilot', 'Test sul campo in alcuni quartieri.']].map(([t, d], i) => (
-          <div key={t} className={i === 2 ? 'card void' : 'card ' + (i === 0 ? 'fill' : 'void')}><b>{t}</b><p>{d}</p></div>
-        ))}
+    <section className="hero">
+      <h1>Berlin is full of rooms nobody is using.</h1>
+      <p>Zwischenraum connects collectives who need a space with owners whose space is empty for a few days, weeks or months.</p>
+      <div className="actions">
+        <button className="btn primary" onClick={() => go("need")}>Need a space?</button>
+        <button className="btn" onClick={() => go("have")}>Have a space?</button>
+        <button className="btn ghost" onClick={() => go("map")}>Browse the map</button>
       </div>
     </section>
-  )
+  );
 }
 
-function Need() {
-  const S = useStore(), { s } = S, me = s.me.collective
-  const [f, setF] = useState({ type: '', genre: '', power: false, sound: false, hood: '', budget: '' })
-  const [sel, setSel] = useState(null), [d, setD] = useState(''), [c, setC] = useState(''), [msg, setMsg] = useState('')
-  const set = (k) => (e) => setF({ ...f, [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value })
-  const list = s.spaces
-    .filter((x) => (!f.type || x.type === f.type) && (!f.genre || x.genres.includes(f.genre)) && (!f.power || x.power) &&
-      (!f.sound || x.sound) && (!f.hood || x.hood === f.hood) && (!f.budget || x.price <= +f.budget))
-    .map((x) => ({ ...x, booked: s.requests.some((r) => r.spaceId === x.id && r.status === 'accepted') }))
-  const sp = s.spaces.find((x) => x.id === sel)
-  const send = () => {
-    if (!me) return setMsg('Inserisci prima il nome del collettivo.')
-    if (!fits(sp, d, s.requests)) return setMsg('La data non rientra in una finestra libera.')
-    S.request({ spaceId: sp.id, collective: me, date: d, concept: c })
-    setMsg('Richiesta inviata. La trovi in “Le mie richieste”.'); setD(''); setC('')
-  }
+function CollectiveFlow({ onSubmit, done }) {
+  const [f, setF] = useState({ name: "", type: COLLECTIVE_TYPES[0], district: "", budget: "", email: "" });
+  const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   return (
-    <section>
-      <h2>Need a space?</h2>
-      <F l="Nome del collettivo"><input value={me} onChange={(e) => S.set('me', { ...s.me, collective: e.target.value })} placeholder="es. Nachtland" /></F>
-      <div className="filters void pad">
-        <F l="Tipo di spazio"><select value={f.type} onChange={set('type')}><option value="">Tutti</option>{TYPES.map((t) => <option key={t}>{t}</option>)}</select></F>
-        <F l="Genere di evento"><select value={f.genre} onChange={set('genre')}><option value="">Tutti</option>{GENRES.map((t) => <option key={t}>{t}</option>)}</select></F>
-        <F l="Budget massimo al giorno (€)"><input type="number" min="0" value={f.budget} onChange={set('budget')} /></F>
-        <label className="chk"><input type="checkbox" checked={f.power} onChange={set('power')} /> Corrente elettrica</label>
-        <label className="chk"><input type="checkbox" checked={f.sound} onChange={set('sound')} /> Isolamento acustico</label>
-        <p className="hint">Zona: tocca un quartiere sulla mappa{f.hood ? ` (ora: ${f.hood})` : ''}.</p>
-      </div>
-      <MapView spaces={list} hood={f.hood} onHood={(h) => setF((p) => ({ ...p, hood: h }))} onSpace={setSel} />
-      <p>{list.length} spazi trovati</p>
-      <div className="grid2">
-        {list.map((x) => (
-          <div key={x.id} className={'card ' + (x.id === sel ? 'fill' : 'void')} onClick={() => { setSel(x.id); setMsg('') }}>
-            <b>{x.name}</b>
-            <p>{x.type}, {x.hood} – {x.m2} m² – {x.price} €/giorno</p>
-            <p>{x.power ? 'Corrente' : 'Senza corrente'}, {x.sound ? 'isolato' : 'non isolato'}. Reputazione: {rate(S.score('space', x.id))}</p>
-          </div>
-        ))}
-      </div>
-      {sp && (
-        <div className="void pad">
-          <h3>{sp.name}</h3>
-          <p>Disponibile: {sp.windows.length ? sp.windows.map(wlabel).join('; ') : 'nessuna finestra'}</p>
-          <Reviews kind="space" target={sp.id} />
-          <F l="Data dell’evento"><input type="date" value={d} onChange={(e) => setD(e.target.value)} /></F>
-          <F l="Concept dell’evento"><textarea value={c} onChange={(e) => setC(e.target.value)} /></F>
-          <button className="y" onClick={send}>Invia richiesta</button> {msg && <span className="hint">{msg}</span>}
-        </div>
+    <section className="panel">
+      <h2>Tell us what your collective needs</h2>
+      {done ? <p className="notice" role="status">Request sent. We will match you with spaces in your district and budget.</p> : (
+        <form onSubmit={(e) => { e.preventDefault(); onSubmit(f); }}>
+          <Field label="Collective name"><input required value={f.name} onChange={set("name")} /></Field>
+          <Field label="Collective profile"><select value={f.type} onChange={set("type")}>{COLLECTIVE_TYPES.map((t) => <option key={t}>{t}</option>)}</select></Field>
+          <Field label="Preferred district"><select value={f.district} onChange={set("district")}><option value="">Anywhere in Berlin</option>{DISTRICTS.map((d) => <option key={d}>{d}</option>)}</select></Field>
+          <Field label="Budget per day (€)"><input type="number" min="0" required value={f.budget} onChange={set("budget")} /></Field>
+          <Field label="Contact email"><input type="email" required value={f.email} onChange={set("email")} /></Field>
+          <button className="btn primary" type="submit">Send request</button>
+        </form>
       )}
     </section>
-  )
+  );
 }
 
-function Reqs() {
-  const S = useStore(), { s } = S, me = s.me.collective
-  if (!me) return <section><p>Inserisci il nome del collettivo in “Need a space?” per vedere le tue richieste.</p></section>
-  const mine = s.requests.filter((r) => r.collective === me)
+function OwnerFlow({ onSubmit, done }) {
+  const [f, setF] = useState({ name: "", sqm: "", district: DISTRICTS[0], cost: "", type: SPACE_TYPES[0], windows: "", email: "" });
+  const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   return (
-    <section>
-      <h2>Le mie richieste</h2>
-      {!mine.length && <p>Nessuna richiesta: scegli uno spazio sulla mappa.</p>}
-      {mine.map((r) => {
-        const sp = s.spaces.find((x) => x.id === r.spaceId)
-        const done = s.reviews.some((v) => v.requestId === r.id && v.kind === 'space')
-        return (
-          <div key={r.id} className={'card ' + (r.status === 'accepted' ? 'fill' : 'void')}>
-            <b>{sp.name}</b> – {r.date} – {STATUS[r.status]}
-            {r.status === 'accepted' && <button onClick={() => S.setStatus(r.id, 'completed')}>Segna l’evento come concluso</button>}
-            {r.status === 'completed' && !done && (
-              <ReviewForm labels={['Veridicità delle condizioni', 'Puntualità', 'Comunicazione']}
-                onSubmit={(score, text) => S.review({ requestId: r.id, kind: 'space', target: sp.id, score, text })} />
-            )}
-            {done && <p>Recensione pubblicata.</p>}
-          </div>
-        )
-      })}
+    <section className="panel">
+      <h2>List your empty space</h2>
+      {done ? <p className="notice" role="status">Space listed. It now appears on the map.</p> : (
+        <form onSubmit={(e) => { e.preventDefault(); onSubmit({ ...f, sqm: Number(f.sqm), cost: Number(f.cost) }); }}>
+          <Field label="Space name"><input required value={f.name} onChange={set("name")} /></Field>
+          <Field label="Space type"><select value={f.type} onChange={set("type")}>{SPACE_TYPES.map((t) => <option key={t}>{t}</option>)}</select></Field>
+          <Field label="Size (m²)"><input type="number" min="1" required value={f.sqm} onChange={set("sqm")} /></Field>
+          <Field label="District"><select value={f.district} onChange={set("district")}>{DISTRICTS.map((d) => <option key={d}>{d}</option>)}</select></Field>
+          <Field label="Cost per day (€)"><input type="number" min="0" required value={f.cost} onChange={set("cost")} /></Field>
+          <Field label="Availability window"><input required placeholder="For example: weekends in November" value={f.windows} onChange={set("windows")} /></Field>
+          <Field label="Contact email"><input type="email" required value={f.email} onChange={set("email")} /></Field>
+          <button className="btn primary" type="submit">List my space</button>
+        </form>
+      )}
     </section>
-  )
+  );
 }
 
-function Windows({ sp }) {
-  const S = useStore()
-  const [w, setW] = useState({ from: '', to: '', weekend: false })
-  const add = () => { if (w.from && w.to && w.from <= w.to) { S.addWindow(sp.id, w); setW({ from: '', to: '', weekend: false }) } }
+function Filters({ f, setF, count }) {
+  const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   return (
-    <div>
-      {sp.windows.map((x) => <p key={x.id}>{wlabel(x)} <button onClick={() => S.delWindow(sp.id, x.id)}>Rimuovi</button></p>)}
-      <div className="row">
-        <input type="date" value={w.from} onChange={(e) => setW({ ...w, from: e.target.value })} />
-        <input type="date" value={w.to} onChange={(e) => setW({ ...w, to: e.target.value })} />
-        <label className="chk"><input type="checkbox" checked={w.weekend} onChange={(e) => setW({ ...w, weekend: e.target.checked })} /> Solo weekend</label>
-        <button className="y" onClick={add}>Aggiungi finestra</button>
-      </div>
+    <div className="filters" role="search" aria-label="Filter spaces">
+      <Field label="District"><select value={f.district} onChange={set("district")}><option value="">All districts</option>{DISTRICTS.map((d) => <option key={d}>{d}</option>)}</select></Field>
+      <Field label="Event genre"><select value={f.genre} onChange={set("genre")}><option value="">Any genre</option>{GENRES.map((g) => <option key={g}>{g}</option>)}</select></Field>
+      <Field label="Power and technical needs"><select value={f.tech} onChange={set("tech")}><option value="">Any setup</option>{TECH.map((t) => <option key={t}>{t}</option>)}</select></Field>
+      <Field label="Max cost per day (€)"><input type="number" min="0" value={f.maxCost} onChange={set("maxCost")} /></Field>
+      <Field label="Min size (m²)"><input type="number" min="0" value={f.minSqm} onChange={set("minSqm")} /></Field>
+      <button className="btn ghost" onClick={() => setF({ district: "", genre: "", tech: "", maxCost: "", minSqm: "" })}>Clear filters</button>
+      <p className="count" aria-live="polite">{count} {count === 1 ? "space" : "spaces"} found</p>
     </div>
-  )
+  );
 }
 
-function Have() {
-  const S = useStore(), { s } = S, me = s.me.owner
-  const empty = { name: '', m2: '', price: '', type: TYPES[0], hood: 'Kreuzberg', power: false, sound: false, genres: [] }
-  const [f, setF] = useState(empty), [pos, setPos] = useState(null)
-  const mine = s.spaces.filter((x) => x.owner === me)
-  const reqs = s.requests.filter((r) => mine.some((x) => x.id === r.spaceId))
-  const add = () => {
-    if (!f.name || !f.m2 || !f.price) return
-    const [lat, lng] = pos || HOODS[f.hood]
-    S.addSpace({ ...f, m2: +f.m2, price: +f.price, lat, lng, owner: me }); setF(empty); setPos(null)
-  }
-  const tg = (g) => setF({ ...f, genres: f.genres.includes(g) ? f.genres.filter((x) => x !== g) : [...f.genres, g] })
+function SpaceMap({ spaces, selected, onSelect }) {
   return (
-    <section>
-      <h2>Have a space?</h2>
-      <F l="Il tuo nome"><input value={me} onChange={(e) => S.set('me', { ...s.me, owner: e.target.value })} /></F>
-      <div className="void pad">
-        <h3>Nuovo spazio</h3>
-        <F l="Nome dello spazio"><input value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></F>
-        <div className="row">
-          <F l="Metri quadrati"><input type="number" min="1" value={f.m2} onChange={(e) => setF({ ...f, m2: e.target.value })} /></F>
-          <F l="Costo al giorno (€)"><input type="number" min="0" value={f.price} onChange={(e) => setF({ ...f, price: e.target.value })} /></F>
-          <F l="Tipo"><select value={f.type} onChange={(e) => setF({ ...f, type: e.target.value })}>{TYPES.map((t) => <option key={t}>{t}</option>)}</select></F>
-          <F l="Quartiere"><select value={f.hood} onChange={(e) => { setF({ ...f, hood: e.target.value }); setPos(null) }}>{Object.keys(HOODS).map((t) => <option key={t}>{t}</option>)}</select></F>
-        </div>
-        <label className="chk"><input type="checkbox" checked={f.power} onChange={(e) => setF({ ...f, power: e.target.checked })} /> Corrente elettrica</label>
-        <label className="chk"><input type="checkbox" checked={f.sound} onChange={(e) => setF({ ...f, sound: e.target.checked })} /> Isolamento acustico</label>
-        <div className="row">{GENRES.map((g) => <label key={g} className="chk"><input type="checkbox" checked={f.genres.includes(g)} onChange={() => tg(g)} /> {g}</label>)}</div>
-        <p className="hint">Posizione precisa: tocca la mappa{pos ? ` (${pos[0].toFixed(4)}, ${pos[1].toFixed(4)})` : ` (altrimenti uso il centro di ${f.hood})`}.</p>
-        <MapView pick={pos || HOODS[f.hood]} onPick={(la, ln) => setPos([la, ln])} height={280} />
-        <button className="y" onClick={add}>Pubblica lo spazio</button>
-      </div>
-      <h3>I miei spazi</h3>
-      {!mine.length && <p>Nessuno spazio: pubblica il primo qui sopra.</p>}
-      {mine.map((sp) => (
-        <div key={sp.id} className="card void">
-          <b>{sp.name}</b> – {sp.m2} m², {sp.price} €/giorno – {sp.hood}. Reputazione: {rate(S.score('space', sp.id))}
-          <h4>Finestre di disponibilità</h4>
-          <Windows sp={sp} />
-        </div>
+    <svg className="map" viewBox="0 0 100 100" role="img" aria-label="Map of Berlin districts with available spaces">
+      <path className="line" d="M10 40 L48 40 L68 42 L86 30" />
+      <path className="line" d="M40 16 L48 40 L46 62 L56 82" />
+      <path className="line" d="M46 62 L78 76" />
+      {DISTRICTS.map((d) => (
+        <text key={d} x={DISTRICT_POS[d][0]} y={DISTRICT_POS[d][1] + 7} className="dlabel" textAnchor="middle">{d}</text>
       ))}
-      <h3>Richieste ricevute</h3>
-      {!reqs.length && <p>Nessuna richiesta ancora.</p>}
-      {reqs.map((r) => {
-        const sp = s.spaces.find((x) => x.id === r.spaceId)
-        const done = s.reviews.some((v) => v.requestId === r.id && v.kind === 'collective')
+      {spaces.map((s, i) => {
+        const [x, y] = DISTRICT_POS[s.district];
+        const cx = x + ((i % 3) - 1) * 4, cy = y - 2 + (i % 2) * 3;
         return (
-          <div key={r.id} className={'card ' + (r.status === 'accepted' ? 'fill' : 'void')}>
-            <b>{r.collective}</b> ({rate(S.score('collective', r.collective))}) per {sp.name}, {r.date} – {STATUS[r.status]}
-            {r.concept && <p>{r.concept}</p>}
-            <Reviews kind="collective" target={r.collective} />
-            {r.status === 'pending' && (
-              <div className="row">
-                <button onClick={() => S.setStatus(r.id, fits({ ...sp }, r.date, s.requests) ? 'accepted' : 'rejected')}>Accetta</button>
-                <button onClick={() => S.setStatus(r.id, 'rejected')}>Rifiuta</button>
-              </div>
-            )}
-            {r.status === 'accepted' && <button onClick={() => S.setStatus(r.id, 'completed')}>Segna l’evento come concluso</button>}
-            {r.status === 'completed' && !done && (
-              <ReviewForm labels={['Rispetto dello spazio', 'Pulizia', 'Affidabilità']}
-                onSubmit={(score, text) => S.review({ requestId: r.id, kind: 'collective', target: r.collective, score, text })} />
-            )}
-            {done && <p>Recensione pubblicata.</p>}
-          </div>
-        )
+          <g key={s.id} tabIndex="0" role="button" aria-label={`Select ${s.name}`} onClick={() => onSelect(s.id)}
+             onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && onSelect(s.id)}>
+            <circle cx={cx} cy={cy} r={selected === s.id ? 3.4 : 2.4} className={selected === s.id ? "pin on" : "pin"} />
+          </g>
+        );
       })}
-    </section>
-  )
+    </svg>
+  );
 }
 
-function Shell() {
-  const [v, go] = useState('home'), S = useStore()
-  const items = [['home', 'Zwischenraum'], ['need', 'Need a space?'], ['reqs', 'Le mie richieste'], ['have', 'Have a space?']]
+function SpaceCard({ s, reviews, active, onRequest }) {
+  const r = averageRating(reviews, "space", s.id);
+  return (
+    <article className={active ? "card active" : "card"}>
+      <h3>{s.name}</h3>
+      <p className="meta">{s.type}, {s.district}, {s.sqm} m², €{s.cost} per day</p>
+      <p>Available: {s.windows}</p>
+      <p>Genres: {s.genres.join(", ")}</p>
+      <p>Technical: {s.tech.join(", ")}</p>
+      <p className="rating">{r ? <><Stars value={r.avg} /> {r.avg.toFixed(1)} from {r.count} {r.count === 1 ? "review" : "reviews"}</> : "No reviews yet"}</p>
+      <button className="btn" onClick={() => onRequest(s)}>Request this space</button>
+    </article>
+  );
+}
+
+function ReviewForm({ spaces, collectives, onAdd }) {
+  const [role, setRole] = useState("Collective");
+  const [target, setTarget] = useState("");
+  const [rating, setRating] = useState(5);
+  const [text, setText] = useState("");
+  const [author, setAuthor] = useState("");
+  const options = role === "Collective" ? spaces.map((s) => ({ v: String(s.id), l: s.name })) : collectives.map((c) => ({ v: c, l: c }));
+  return (
+    <section className="panel">
+      <h2>Leave a review</h2>
+      <p>Both sides review each other, so trust builds in both directions.</p>
+      <form onSubmit={(e) => {
+        e.preventDefault();
+        onAdd({ targetType: role === "Collective" ? "space" : "collective", targetId: role === "Collective" ? Number(target) : target, role, author, rating: Number(rating), text });
+        setText(""); setTarget(""); setAuthor("");
+      }}>
+        <Field label="I am reviewing as"><select value={role} onChange={(e) => { setRole(e.target.value); setTarget(""); }}><option value="Collective">A collective (reviewing a space)</option><option value="Owner">An owner (reviewing a collective)</option></select></Field>
+        <Field label={role === "Collective" ? "Space" : "Collective"}><select required value={target} onChange={(e) => setTarget(e.target.value)}><option value="">Select…</option>{options.map((o) => <option key={o.v} value={o.v}>{o.l}</option>)}</select></Field>
+        <Field label="Your name"><input required value={author} onChange={(e) => setAuthor(e.target.value)} /></Field>
+        <Field label="Rating"><select value={rating} onChange={(e) => setRating(e.target.value)}>{[5, 4, 3, 2, 1].map((n) => <option key={n} value={n}>{n} out of 5</option>)}</select></Field>
+        <Field label="Your review"><textarea required rows="3" value={text} onChange={(e) => setText(e.target.value)} /></Field>
+        <button className="btn primary" type="submit">Publish review</button>
+      </form>
+    </section>
+  );
+}
+
+function ReviewList({ reviews, spaces }) {
+  const name = (r) => (r.targetType === "space" ? spaces.find((s) => s.id === r.targetId)?.name : r.targetId);
+  return (
+    <section className="panel">
+      <h2>Recent reviews</h2>
+      {reviews.length === 0 ? <p>No reviews yet. Be the first to leave one.</p> : (
+        <ul className="reviews">{[...reviews].reverse().map((r) => (
+          <li key={r.id}><strong>{name(r)}</strong> <Stars value={r.rating} /><p>{r.text}</p><small>{r.author}, {r.role.toLowerCase()}</small></li>
+        ))}</ul>
+      )}
+    </section>
+  );
+}
+
+export default function App() {
+  const [view, setView] = useState("home");
+  const [spaces, setSpaces] = useState(INITIAL_SPACES);
+  const [collectives, setCollectives] = useState(INITIAL_COLLECTIVES);
+  const [reviews, setReviews] = useState(INITIAL_REVIEWS);
+  const [filters, setFilters] = useState({ district: "", genre: "", tech: "", maxCost: "", minSqm: "" });
+  const [selected, setSelected] = useState(null);
+  const [sent, setSent] = useState({ need: false, have: false });
+  const [toast, setToast] = useState("");
+  const visible = useMemo(() => filterSpaces(spaces, filters), [spaces, filters]);
+
+  const go = (v) => { setView(v); window.scrollTo(0, 0); };
+  const nav = [["home", "Home"], ["need", "Need a space?"], ["have", "Have a space?"], ["map", "Map"], ["reviews", "Reviews"]];
+
   return (
     <>
-      <header>{items.map(([k, l]) => <button key={k} className={v === k ? 'on' : ''} onClick={() => go(k)}>{l}</button>)}</header>
+      <header className="bar">
+        <button className="brand" onClick={() => go("home")}>Zwischenraum Berlin</button>
+        <nav aria-label="Main">{nav.map(([k, l]) => <button key={k} aria-current={view === k ? "page" : undefined} onClick={() => go(k)}>{l}</button>)}</nav>
+      </header>
       <main>
-        {v === 'home' && <Home go={go} />}{v === 'need' && <Need />}{v === 'reqs' && <Reqs />}{v === 'have' && <Have />}
+        {toast && <p className="notice" role="status">{toast}</p>}
+        {view === "home" && (<>
+          <Hero go={go} />
+          <section className="phases"><h2>How we are building this</h2>
+            <ol>{PHASES.map((p) => <li key={p.name}><h3>{p.name}</h3><p>{p.text}</p></li>)}</ol>
+          </section>
+        </>)}
+        {view === "need" && <CollectiveFlow done={sent.need} onSubmit={(f) => { setCollectives([...collectives, f.name]); setSent({ ...sent, need: true }); }} />}
+        {view === "have" && <OwnerFlow done={sent.have} onSubmit={(f) => {
+          setSpaces([...spaces, { ...f, id: Date.now(), genres: GENRES.slice(0, 2), tech: ["Standard sockets"] }]);
+          setSent({ ...sent, have: true });
+        }} />}
+        {view === "map" && (
+          <section className="mapview">
+            <h2>Available spaces</h2>
+            <Filters f={filters} setF={setFilters} count={visible.length} />
+            <div className="split">
+              <SpaceMap spaces={visible} selected={selected} onSelect={setSelected} />
+              <div className="list">
+                {visible.length === 0 && <p>No spaces match these filters. Try a larger budget or a different district.</p>}
+                {visible.map((s) => <SpaceCard key={s.id} s={s} reviews={reviews} active={selected === s.id}
+                  onRequest={(sp) => { setToast(`Request sent for “${sp.name}”. The owner will reply by email.`); setTimeout(() => setToast(""), 4000); }} />)}
+              </div>
+            </div>
+          </section>
+        )}
+        {view === "reviews" && (<><ReviewForm spaces={spaces} collectives={collectives}
+          onAdd={(r) => setReviews([...reviews, { ...r, id: Date.now() }])} /><ReviewList reviews={reviews} spaces={spaces} /></>)}
       </main>
-      <footer>Dati salvati nel tuo browser. <button onClick={() => confirm('Cancellare tutti i dati demo?') && S.reset()}>Ripristina i dati demo</button></footer>
+      <footer>Zwischenraum Berlin. Research, design and pilot in progress.</footer>
     </>
-  )
+  );
 }
-
-export default function App() { return <Provider><Shell /></Provider> }

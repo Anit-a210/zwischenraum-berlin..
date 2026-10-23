@@ -1,30 +1,32 @@
-export const HOODS = {
-  Friedrichshain: [52.5159, 13.454],
-  Kreuzberg: [52.4986, 13.403],
-  'Neukölln': [52.4811, 13.435],
-  Wedding: [52.55, 13.354],
-  Lichtenberg: [52.513, 13.499],
-  Moabit: [52.53, 13.342],
-}
-export const TYPES = ['Magazzino', 'Negozio vuoto', 'Ufficio dismesso', 'Seminterrato']
-export const GENRES = ['techno', 'ambient', 'live', 'jazz', 'experimental']
+export const DISTRICTS = ["Kreuzberg", "Neukölln", "Friedrichshain", "Mitte", "Wedding", "Lichtenberg", "Treptow"];
+export const DISTRICT_POS = {
+  Mitte: [48, 40], Wedding: [40, 16], Friedrichshain: [68, 42], Kreuzberg: [46, 62],
+  Neukölln: [56, 82], Treptow: [78, 76], Lichtenberg: [86, 30],
+};
+export const GENRES = ["Concert", "Exhibition", "Club night", "Theatre and performance", "Workshop", "Film screening"];
+export const TECH = ["Standard sockets", "Three-phase power", "Sound system on site", "Daylight only"];
+export const COLLECTIVE_TYPES = ["Music collective", "Visual arts collective", "Performance group", "Event crew", "Other"];
+export const SPACE_TYPES = ["Warehouse", "Shopfront", "Courtyard", "Basement", "Office floor", "Other"];
 
-const sp = (id, name, type, hood, i, m2, price, power, sound, genres, from, to, weekend) => ({
-  id, name, type, hood, m2, price, power, sound, genres, owner: 'Demo Owner',
-  lat: HOODS[hood][0] + i * 0.004, lng: HOODS[hood][1] + i * 0.005,
-  windows: [{ id: id + 'w', from, to, weekend: !!weekend }],
-})
+export const INITIAL_SPACES = [
+  { id: 1, name: "Former bakery on Wiener Straße", district: "Kreuzberg", sqm: 90, cost: 120, type: "Shopfront",
+    genres: ["Exhibition", "Workshop", "Film screening"], tech: ["Standard sockets", "Daylight only"], windows: "Fri to Sun, in 3 weeks" },
+  { id: 2, name: "Tempelhofer Hangar Annex", district: "Neukölln", sqm: 400, cost: 450, type: "Warehouse",
+    genres: ["Club night", "Concert"], tech: ["Three-phase power", "Sound system on site"], windows: "Every second weekend" },
+  { id: 3, name: "Empty office floor, Warschauer", district: "Friedrichshain", sqm: 220, cost: 300, type: "Office floor",
+    genres: ["Exhibition", "Theatre and performance", "Workshop"], tech: ["Standard sockets"], windows: "Weekdays, next 6 weeks" },
+  { id: 4, name: "Brewery cellar", district: "Wedding", sqm: 150, cost: 180, type: "Basement",
+    genres: ["Concert", "Club night"], tech: ["Three-phase power"], windows: "Thu to Sat, next month" },
+  { id: 5, name: "Courtyard behind the post office", district: "Mitte", sqm: 300, cost: 250, type: "Courtyard",
+    genres: ["Film screening", "Concert", "Theatre and performance"], tech: ["Standard sockets", "Daylight only"], windows: "Weekends until October" },
+  { id: 6, name: "Depot hall, Rummelsburg", district: "Lichtenberg", sqm: 600, cost: 520, type: "Warehouse",
+    genres: ["Club night", "Exhibition"], tech: ["Three-phase power", "Sound system on site"], windows: "Single dates, on request" },
+];
 
-export const SEED = {
-  me: { collective: '', owner: 'Demo Owner' },
-  spaces: [
-    sp('s1', 'Lagerhalle an der Spree', 'Magazzino', 'Friedrichshain', 1, 420, 150, true, false, ['techno', 'experimental'], '2026-11-01', '2026-12-31'),
-    sp('s2', 'Ex-Bäckerei Reuterkiez', 'Negozio vuoto', 'Neukölln', 1, 95, 60, true, true, ['ambient', 'live'], '2026-11-01', '2027-01-31', true),
-    sp('s3', 'Büro im vierten Stock', 'Ufficio dismesso', 'Kreuzberg', -1, 180, 90, false, true, ['jazz', 'ambient'], '2026-11-15', '2026-12-15'),
-    sp('s4', 'Keller Müllerstraße', 'Seminterrato', 'Wedding', 0, 140, 80, true, true, ['techno', 'live'], '2026-11-01', '2026-11-30', true),
-    sp('s5', 'Fabrikhalle Herzbergstraße', 'Magazzino', 'Lichtenberg', 1, 700, 220, true, false, ['techno', 'experimental', 'live'], '2026-12-01', '2027-03-31'),
-    sp('s6', 'Laden Turmstraße', 'Negozio vuoto', 'Moabit', 0, 70, 40, false, false, ['ambient', 'jazz'], '2026-11-01', '2026-11-30'),
-  ],
-  requests: [],
-  reviews: [],
-}
+export const INITIAL_COLLECTIVES = ["Nachtbus Kollektiv", "Studio Spree", "Loop Theatre Lab"];
+
+export const INITIAL_REVIEWS = [
+  { id: 1, targetType: "space", targetId: 1, role: "Collective", author: "Studio Spree", rating: 5, text: "Clear handover, bright room, fair price." },
+  { id: 2, targetType: "space", targetId: 2, role: "Collective", author: "Nachtbus Kollektiv", rating: 4, text: "Great power supply. Neighbours need notice for late events." },
+  { id: 3, targetType: "collective", targetId: "Studio Spree", role: "Owner", author: "Owner of the bakery space", rating: 5, text: "Left the space cleaner than they found it." },
+];
